@@ -64,7 +64,38 @@ def TLS_handshake_client(connection, server_ip=SERVER_IP, server_port=SERVER_POR
     #  * Return the symmetric key for use in further communications with the server
     # Make sure to use encode_message() on the first message so the VPN knows which 
     # server to connect with
-    return 0
+
+    tls_request = encode_message("TLS request")
+    connection.sendall(bytes(tls_request, 'utf-8'))
+    print("Requesting TLS handshake from server, waiting for signed certificate")
+    data = connection.recv(1024)
+    server_certificate = data.decode("utf-8")
+    print("Received signed certificate from server, verifying certificate")
+    server_certificate = cryptgraphy_simulator.verify_certificate(CA_public_key, server_certificate)
+
+    print("Verified certificate, extracting server's public key, IP address, and port")
+    x = server_certificate.split("|", 2)
+    server_public_key = x.pop(2)
+    received_port = int(x.pop(1))
+    received_ip= x.pop(0)
+
+    try:
+        assert received_ip == server_ip
+    except AssertionError:
+        raise AssertionError("The received IP address {} does not match the server IP {}".format(received_ip, server_ip))
+    
+    try:
+        assert received_port == server_port
+    except AssertionError:
+        raise AssertionError("The received port {} does not match the server port {}".format(received_port, server_port))
+    
+    print("Generating a symmetric key")
+    symmetric_key = cryptgraphy_simulator.generate_symmetric_key()
+    encrypted_key = cryptgraphy_simulator.public_key_encrypt(server_public_key, symmetric_key)
+    print("Sending symmetric key to server")
+    connection.sendall(bytes(encrypted_key, 'utf-8'))
+
+    return symmetric_key
 
 print("Client starting - connecting to VPN at IP", VPN_IP, "and port", VPN_PORT)
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
